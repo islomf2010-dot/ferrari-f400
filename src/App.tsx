@@ -1,105 +1,49 @@
-import { useProgress } from '@react-three/drei/core/Progress.js';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import gsap from 'gsap';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Experience } from './scene/Experience.tsx';
-import { FINALE, SCENE_COPY, SITE } from './content.ts';
-import { SCENE_END } from './scroll/story.ts';
-import { useCopyReveal, useScrollDriver } from './scroll/useScroll.ts';
-import { initialQuality, settingsFor, type QualityTier } from './lib/quality.ts';
+import { FilmStage, type FilmStatus } from './film/FilmStage.tsx';
+import { Ambience } from './lib/audio.ts';
 import { useReducedMotion } from './lib/useReducedMotion.ts';
-import { applyLayout, replay, scroll } from './scene/stage.ts';
-import { setPointer } from './scene/Director.tsx';
-import { Hud } from './ui/Hud.tsx';
-import { Hotspots } from './ui/Hotspots.tsx';
 import { Loader } from './ui/Loader.tsx';
-import { SceneBlock } from './ui/SceneBlock.tsx';
+import { Masthead } from './ui/Masthead.tsx';
+import { Story } from './ui/Story.tsx';
 
 export default function App() {
-  const rootRef = useRef<HTMLDivElement>(null);
+  const section = useRef<HTMLElement>(null);
   const reducedMotion = useReducedMotion();
 
-  const [quality, setQuality] = useState<QualityTier>(() => initialQuality().tier);
-  const [scene, setScene] = useState(1);
-  const [booted, setBooted] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const [loaderHidden, setLoaderHidden] = useState(false);
-  const [activeHotspot, setActiveHotspot] = useState<string | null>(null);
-  const [dprFactor, setDprFactor] = useState(1);
-  const dprRef = useRef(setDprFactor);
-  dprRef.current = setDprFactor;
+  const ambience = useMemo(() => new Ambience(), []);
+  const [film, setFilm] = useState<{ status: FilmStatus; progress: number }>({
+    status: 'loading',
+    progress: 0,
+  });
+  const [curtain, setCurtain] = useState(true);
 
-  const qualitySettings = useMemo(() => settingsFor(quality), [quality]);
-  const dpr = useMemo<[number, number]>(
-    () => [qualitySettings.dpr[0], Math.max(qualitySettings.dpr[0], qualitySettings.dpr[1] * dprFactor)],
-    [qualitySettings, dprFactor],
-  );
-  const progress = useProgress();
-
-  // ── Layout: section heights come from the story spans ─────────────────
+  // Hold the curtain long enough for the opening to read as a fade-up, not a
+  // flash. Shorter when the visitor has asked for reduced motion.
   useEffect(() => {
-    const relayout = () => applyLayout(rootRef.current);
-    relayout();
-    window.addEventListener('resize', relayout);
-    window.addEventListener('orientationchange', relayout);
-    return () => {
-      window.removeEventListener('resize', relayout);
-      window.removeEventListener('orientationchange', relayout);
-    };
-  }, []);
-
-  // ── Scroll ────────────────────────────────────────────────────────────
-  useScrollDriver(rootRef, booted);
-  useCopyReveal(rootRef, booted);
-
-  // ── Pointer parallax, scene 01 only ───────────────────────────────────
-  useEffect(() => {
-    if (reducedMotion) return;
-    const onMove = (event: PointerEvent) => {
-      if (scroll.t > 0.17) return;
-      setPointer((event.clientX / window.innerWidth) * 2 - 1, (event.clientY / window.innerHeight) * 2 - 1);
-    };
-    window.addEventListener('pointermove', onMove, { passive: true });
-    return () => window.removeEventListener('pointermove', onMove);
-  }, [reducedMotion]);
-
-  // ── Loader hand-off ───────────────────────────────────────────────────
-  const handleReady = useCallback(() => setReady(true), []);
-  const handleError = useCallback((err: Error) => setError(err), []);
-
-  useEffect(() => {
-    if (!ready || error) return;
-    // Hold the curtain long enough for the reveal to read as a reveal.
-    const id = window.setTimeout(() => {
-      setLoaderHidden(true);
-      setBooted(true);
-    }, reducedMotion ? 180 : 900);
+    if (film.status === 'loading') return;
+    const wait = film.status === 'failed' ? 400 : reducedMotion ? 180 : 850;
+    const id = window.setTimeout(() => setCurtain(false), wait);
     return () => window.clearTimeout(id);
-  }, [ready, error, reducedMotion]);
+  }, [film.status, reducedMotion]);
 
+  // Hand the static curtain in index.html over to the React one, so there is
+  // never a black frame between the two.
   useEffect(() => {
     const boot = document.getElementById('boot');
-    if (!boot || !ready) return;
+    if (!boot) return;
     boot.classList.add('is-done');
-    const id = window.setTimeout(() => boot.remove(), 900);
+    const id = window.setTimeout(() => boot.remove(), 700);
     return () => window.clearTimeout(id);
-  }, [ready]);
+  }, []);
 
-  // ── Close an open detail once its scene is behind us ──────────────────
+  // Keyboard: Home / End move cleanly to either end of the film.
   useEffect(() => {
-    const tick = () => {
-      if (activeHotspot && scroll.t > SCENE_END[4] + 0.05) setActiveHotspot(null);
-    };
-    gsap.ticker.add(tick);
-    return () => gsap.ticker.remove(tick);
-  }, [activeHotspot]);
-
-  // ── Keyboard: Home / End jump cleanly to either end ───────────────────
-  useEffect(() => {
-    if (!booted) return;
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key !== 'Home' && event.key !== 'End') return;
+      const target = event.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
       event.preventDefault();
       window.scrollTo({
         top: event.key === 'Home' ? 0 : document.body.scrollHeight,
@@ -108,108 +52,41 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [booted, reducedMotion]);
+  }, [reducedMotion]);
 
-  const retry = useCallback(() => window.location.reload(), []);
+  const mode: 'scrub' | 'still' = reducedMotion || film.status === 'failed' ? 'still' : 'scrub';
 
   return (
-    <div className="app" ref={rootRef}>
-      {/* ── Fixed 3D stage ─────────────────────────────────────────────── */}
-      <div className="stage" aria-hidden="true">
-        <Experience
-          quality={qualitySettings}
-          reducedMotion={reducedMotion}
-          onQualityChange={setQuality}
-          onSceneChange={setScene}
-          onReady={handleReady}
-          onError={handleError}
-          dpr={dpr}
-          onDprFactorRef={dprRef}
-        />
-        <div className="stage__scrim" />
-        <div className="stage__vignette" />
-        <div className="stage__grain" />
-      </div>
+    <>
+      <Masthead ambience={ambience} />
 
-      {/* ── Fixed chrome ───────────────────────────────────────────────── */}
-      <header className="masthead">
-        <p className="masthead__mark">
-          <span className="masthead__marque">{SITE.marque}</span>
-          <span className="masthead__model">{SITE.model}</span>
-        </p>
-        <p className="masthead__meta">
-          <span>1987</span>
-          <span className="rule" aria-hidden="true" />
-          <span>Maranello</span>
-        </p>
-      </header>
+      <main>
+        <section
+          className={`film${mode === 'still' ? ' film--still' : ''}`}
+          id="reveal"
+          ref={section}
+          aria-label="The reveal — scroll to run the film"
+        >
+          <FilmStage section={section} mode={mode} onStatus={setFilm} />
+        </section>
 
-      {booted ? <Hud activeScene={scene} onReplay={replay} quality={quality} /> : null}
-      {booted ? <Hotspots active={activeHotspot} onSelect={setActiveHotspot} /> : null}
-      {booted ? <ScrollHint /> : null}
-
-      {/* ── Scrolling copy ─────────────────────────────────────────────── */}
-      <main className="scroll">
-        {SCENE_COPY.map((content) => (
-          <section className="scene" key={content.id} data-scene={content.id - 1} id={`scene-${content.id}`}>
-            <div className={`scene__frame scene__frame--${content.align}`}>
-              <SceneBlock content={content} />
-            </div>
-          </section>
-        ))}
-
-        {/* The closing frame. See FINALE in content.ts for why it lives here. */}
-        <div data-tail className="tail">
-          <div className="scene__frame scene__frame--center scene__frame--finale">
-            <SceneBlock content={FINALE} />
-            <button type="button" className="btn btn--primary scene__replay" onClick={replay}>
-              {SITE.replay}
-            </button>
-          </div>
-        </div>
+        <Story />
       </main>
 
       <Loader
-        visible={!loaderHidden}
-        progress={error ? 1 : progress.progress}
-        status={statusFor(progress)}
-        error={error}
-        onRetry={retry}
+        visible={curtain}
+        progress={film.status === 'failed' ? 1 : film.progress}
+        label={labelFor(film.progress, film.status)}
+        detail={film.status === 'failed' ? 'Film unavailable — showing the still' : null}
       />
-    </div>
+    </>
   );
 }
 
-/**
- * The scroll affordance fades out the moment the story moves. Driven from
- * GSAP's existing ticker rather than React state, so it costs nothing.
- */
-function ScrollHint() {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const ref_ = ref;
-    const tick = () => {
-      const node = ref_.current;
-      if (!node) return;
-      const on = scroll.t < 0.012 && scroll.ready;
-      if (node.classList.contains('is-on') !== on) node.classList.toggle('is-on', on);
-    };
-    gsap.ticker.add(tick);
-    return () => gsap.ticker.remove(tick);
-  }, []);
-
-  return (
-    <div className="scroll-hint" ref={ref} aria-hidden="true">
-      <span className="scroll-hint__label">Scroll</span>
-      <span className="scroll-hint__line" />
-    </div>
-  );
-}
-
-function statusFor(progress: { progress: number; total: number; active: boolean }): string {
-  if (!progress.active && progress.total > 0) return 'Compiling shaders';
-  if (progress.progress > 0.94) return 'Lighting the studio';
-  if (progress.progress > 0.72) return 'Uploading textures';
-  if (progress.progress > 0.2) return 'Decoding geometry';
-  return 'Requesting model';
+function labelFor(progress: number, status: FilmStatus): string {
+  if (status === 'failed') return 'Film unavailable';
+  if (progress > 0.92) return 'Buffering the full take';
+  if (progress > 0.5) return 'Loading the orbit';
+  if (progress > 0.12) return 'Loading the reveal';
+  return 'Requesting the film';
 }

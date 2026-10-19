@@ -3,24 +3,46 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#070708" />
+    <meta name="theme-color" content="#060607" />
+    <meta name="color-scheme" content="dark" />
+    <title>Ferrari F40 — The Reveal</title>
     <meta
       name="description"
-      content="Ferrari F40 — a scroll-driven 3D study. Scroll to move the camera through the F40's form, its engineering and its legacy."
+      content="A Ferrari F40 beneath black silk in a dark Maranello studio. Scroll to pull the cover away and run the camera around the car, frame by frame."
     />
-    <title>FERRARI F40 — Born To Be Unforgettable</title>
+
+    <!-- The key art is the first thing a returning visitor should see, and it is
+         what the film dissolves out of. Preloading it costs one request and
+         removes the blank frame while the clip streams. -->
+    <link rel="preload" as="image" href="/media/f40-keyart.jpg" fetchpriority="high" />
+
+    <!-- The film itself is started by `preload="auto"` on the element, which
+         mounts with the first React commit. A `<link rel=preload as=fetch>` for
+         a media resource is unreliable — the browser has to make the media
+         request's credentials mode match for the preload to be reused, and when
+         it does not match the file is fetched twice and the console warns. Not
+         worth the risk for the gain. -->
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Ferrari F40 — The Reveal" />
+    <meta property="og:description" content="A scroll-scrubbed cinematic reveal. Every frame is yours to control." />
+    <meta property="og:image" content="/media/f40-keyart.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+
     <style>
       html,
       body {
         margin: 0;
-        background: #070708;
+        background: #060607;
       }
-      /* First-paint curtain: replaced by the React loader, prevents a white flash. */
+
+      /* First-paint curtain. Painted before a single byte of JavaScript has run,
+         then handed over to the React curtain so the opening never flashes. */
       #boot {
         position: fixed;
         inset: 0;
-        z-index: 999;
-        background: #070708;
+        z-index: 60;
+        background: #060607;
         transition: opacity 0.6s ease;
       }
       #boot.is-done {
@@ -32,6 +54,30 @@
   <body>
     <div id="boot"></div>
     <div id="root"></div>
+    <noscript>
+      <div
+        style="
+          position: relative;
+          z-index: 5;
+          max-width: 42rem;
+          margin: 0 auto;
+          padding: 4rem 1.5rem 6rem;
+          font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+          color: #f2f0ec;
+        "
+      >
+        <h1 style="font-size: 2rem; letter-spacing: -0.03em">Ferrari F40 — The Reveal</h1>
+        <p style="margin-top: 1rem; line-height: 1.7; color: rgba(242, 240, 236, 0.62)">
+          This experience is a film the visitor scrubs by scrolling, so it needs JavaScript. The car itself does not:
+          a 1987 Ferrari F40, 2,936 cc twin-turbocharged V8, 478 PS, 1,100 kg dry, 1,311 built between 1987 and 1992.
+        </p>
+        <img
+          src="/media/f40-keyart.jpg"
+          alt="A red Ferrari F40 under studio spotlights in a dark room."
+          style="margin-top: 2rem; width: 100%"
+        />
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

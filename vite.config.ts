@@ -13,12 +13,17 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
+    // Fonts are the only thing worth inlining; everything else stays a file.
     assetsInlineLimit: 2048,
+    cssCodeSplit: false,
     rollupOptions: {
       output: {
+        // The whole experience is React + GSAP and nothing else. The previous
+        // three.js / R3F chunks are gone with the real-time 3D scene they
+        // served: a pre-rendered film is cheaper to ship and cheaper to run.
         manualChunks: {
-          three: ['three'],
-          r3f: ['@react-three/fiber', '@react-three/drei'],
+          gsap: ['gsap'],
+          react: ['react', 'react-dom'],
         },
       },
     },

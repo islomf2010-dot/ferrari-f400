@@ -1,29 +1,27 @@
 {
   "name": "ferrari-f40",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "assets": "node scripts/optimize-model.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 4173",
-    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false",
-    "inspect": "node scripts/inspect-model.mjs",
-    "verify": "node --experimental-strip-types scripts/verify-timeline.ts",
+    "typecheck": "tsc -b",
+    "media": "node scripts/prepare-media.mjs",
+    "verify": "node scripts/verify-film.mjs",
     "check": "npm run verify && npm run build",
-    "functional": "node scripts/functional.mjs",
-    "shoot": "node scripts/shoot.mjs"
+    "test": "node scripts/functional.mjs",
+    "shoot": "node scripts/shoot.mjs",
+    "assets": "node scripts/optimize-model.mjs",
+    "inspect": "node scripts/inspect-model.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter-tight": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "@react-three/drei": "10.7.9",
-    "@react-three/fiber": "9.8.2",
     "gsap": "3.15.0",
     "react": "19.3.1",
-    "react-dom": "19.3.1",
-    "three": "0.186.1"
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.5.1",
@@ -31,9 +29,7 @@
     "@gltf-transform/functions": "^4.5.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@types/three": "0.186.0",
-    "@vitejs/plugin-react": "5.2.0",
-    "draco3dgltf": "^1.5.8",
+    "@vitejs/plugin-react": "^5.2.0",
     "playwright": "^1.64.1",
     "sharp": "^0.35.5",
     "typescript": "5.9.3",

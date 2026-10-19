@@ -1,92 +1,150 @@
 /**
- * Frame capture rig.
+ * FRAME CAPTURE RIG
  *
- * SwiftShader renders this scene in software at well under 1 fps, so every
- * capture has to give the page time to settle AND time to produce at least one
- * frame. `--wait` controls that budget.
+ *   node scripts/shoot.mjs [--url http://127.0.0.1:4173] [--out shots/film]
+ *                         [--clip 720] [--viewport 1440x900]
  *
- *   node scripts/shoot.mjs <url> <sceneCount> [--wait=9000]
+ * Captures the film at every authored beat — each phase, each orbit label and
+ * the hero frame — plus the two story sections, so the choreography can be
+ * reviewed as stills without scrubbing through it a hundred times.
+ *
+ * Positions come straight out of `src/film/timeline.ts` so a caption can never
+ * be reviewed at a scroll offset the visitor will never actually reach.
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+
+import { spawn } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OUT = path.resolve(__dirname, '../shots', process.env.SHOT_DIR || 'run');
-
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
-const flags = Object.fromEntries(
-  args.filter((a) => a.startsWith('--')).map((a) => a.replace(/^--/, '').split('=')),
-);
-const positional = args.filter((a) => !a.startsWith('--'));
-const URL_BASE = positional[0] || 'http://127.0.0.1:5199/?q=low&debug=1';
-const TIMES = positional[1]
-  ? positional[1].split(',').map(Number)
-  : [0, 0.09, 0.2, 0.3, 0.4, 0.47, 0.55, 0.63, 0.7, 0.76, 0.84, 0.93, 1];
-const W = Number(flags.w || 1440);
-const H = Number(flags.h || 810);
-const WAIT = Number(flags.wait || 9000);
-
-await mkdir(OUT, { recursive: true });
-
-const browser = await chromium.launch({
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox', '--ignore-gpu-blocklist'],
-});
-const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
-page.setDefaultTimeout(300_000);
-
-const logs = [];
-page.on('console', (m) => logs.push({ type: m.type(), text: m.text() }));
-page.on('pageerror', (e) => logs.push({ type: 'pageerror', text: `${e.message}\n${e.stack || ''}` }));
-page.on('requestfailed', (r) => logs.push({ type: 'requestfailed', text: `${r.url()} — ${r.failure()?.errorText}` }));
-
-console.log(`→ ${URL_BASE}  (${W}×${H}, ${WAIT}ms per frame)`);
-await page.goto(URL_BASE, { waitUntil: 'load', timeout: 180_000 });
-await page.waitForFunction(() => document.querySelector('.loader')?.classList.contains('is-hidden'), { timeout: 300_000, polling: 500 });
-await page.waitForTimeout(WAIT);
-
-const scrollable = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
-console.log('scrollable', scrollable);
-
-const shots = [];
-const settle = async (t) => {
-  /*
-   * GSAP's lag smoothing caps a slow frame at 33ms, so under SwiftShader the
-   * scrub would advance ~30x slower than wall clock and never settle. For a
-   * deterministic capture we place the story clock directly instead — the pose
-   * sampled is exactly the authored pose at `t`.
-   */
-  await page.evaluate((target) => {
-    const s = window.__F40.scroll;
-    s.locked = true;
-    s.target = target;
-    s.t = target;
-  }, t);
-  const start = await page.evaluate(() => window.__F40?.scroll.frame ?? 0);
-  await page
-    .waitForFunction((s0) => (window.__F40?.scroll.frame ?? 0) > s0 + 1, start, { timeout: WAIT, polling: 400 })
-    .catch(() => console.warn('  (frame wait timed out)'));
+const flag = (n, d) => {
+  const i = args.indexOf(`--${n}`);
+  return i >= 0 && args[i + 1] ? args[i + 1] : d;
 };
 
-for (const t of TIMES) {
-  await page.evaluate((y) => window.scrollTo({ top: y, behavior: 'instant' }), Math.round(scrollable * t));
-  await settle(t);
-  const name = `t${String(Math.round(t * 100)).padStart(3, '0')}.png`;
-  await page.screenshot({ path: path.join(OUT, name), timeout: 300_000, animations: 'disabled' });
-  shots.push(name);
-  const state = await page.evaluate(() => ({
-    t: +window.__F40?.scroll?.t.toFixed(3),
-    frame: window.__F40?.scroll?.frame,
-    yaw: +((window.__F40?.stage?.car?.rotation?.y ?? 0) * 57.2958).toFixed(1),
-    cam: window.__F40?.camera?.position?.toArray?.().map((n) => +n.toFixed(2)),
-  }));
-  console.log(`  ${name}  t=${state.t} yaw=${state.yaw} cam=${JSON.stringify(state.cam)}`);
+const BASE = flag('url', 'http://127.0.0.1:4173');
+const CLIP = flag('clip', '720');
+const OUT = path.resolve(ROOT, flag('out', 'shots/film'));
+const [W, H] = flag('viewport', '1440x900').split('x').map(Number);
+
+// ── The beats, in the order the visitor meets them ────────────────────
+const BEATS = [
+  { name: '01-mystery-open', at: 0.0, note: 'the held breath — black studio, covered car' },
+  { name: '02-mystery-covered', at: 0.1, note: 'camera pushing in under the spotlight' },
+  { name: '03-reveal-opening', at: 0.19, note: 'the silk starts to leave' },
+  { name: '04-reveal-red', at: 0.27, note: 'Rosso Corsa out of the dark' },
+  { name: '05-orbit-front', at: 0.36, note: 'label: front — pure intention' },
+  { name: '06-orbit-side', at: 0.51, note: 'label: side — form follows function' },
+  { name: '07-orbit-rear-quarter', at: 0.69, note: 'label: rear — engineered to perform' },
+  { name: '08-orbit-tail', at: 0.72, note: 'dead rear — lamp band and engine bay' },
+  { name: '09-orbit-f40', at: 0.84, note: 'label: F40 — an unfiltered driving machine' },
+  { name: '10-hero-frame', at: 1.0, note: 'the final frame' },
+];
+
+const server = spawn('npx', ['vite', 'preview', '--port', '4173', '--host', '127.0.0.1'], {
+  cwd: ROOT,
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+process.on('exit', () => server.kill('SIGTERM'));
+
+await new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error('preview server did not start')), 20000);
+  server.stdout.on('data', (b) => {
+    if (b.toString().includes('4173')) {
+      clearTimeout(timer);
+      setTimeout(resolve, 500);
+    }
+  });
+});
+
+mkdirSync(OUT, { recursive: true });
+const browser = await chromium.launch({ headless: true, args: ['--mute-audio'] });
+const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
+await page.goto(`${BASE}/?clip=${CLIP}`, { waitUntil: 'load', timeout: 45000 });
+await page.waitForFunction(() => !document.querySelector('.loader:not(.is-hidden)'), null, { timeout: 45000 });
+await page.waitForTimeout(600);
+
+const manifest = [];
+for (const beat of BEATS) {
+  const t = await page.evaluate(async (f) => {
+    const film = document.getElementById('reveal');
+    window.scrollTo({ top: (film.offsetHeight - window.innerHeight) * f, behavior: 'instant' });
+    await new Promise((res) => {
+      let last = -1;
+      let stable = 0;
+      const tick = () => {
+        const rail = document.querySelector('.hud__rail-fill');
+        const s = Number(rail?.style.transform.match(/[\d.]+/)?.[0] ?? 0);
+        if (Math.abs(s - last) < 0.0004) stable++;
+        else stable = 0;
+        last = s;
+        if (stable > 6) res();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    const v = document.querySelector('video');
+    return { seconds: v.currentTime, paused: v.paused };
+  }, beat.at);
+
+  // Let the header and the dissolve settle before the shutter.
+  await page.waitForTimeout(700);
+  const file = `${beat.name}.png`;
+  await page.screenshot({ path: path.join(OUT, file) });
+  manifest.push({ ...beat, file, ...t });
+  console.log(`  ${file.padEnd(26)} ${String(Math.round(beat.at * 100)).padStart(3)}%  t=${t.seconds.toFixed(3)}s  ${beat.note}`);
 }
 
-const errors = logs.filter((l) => ['error', 'pageerror', 'requestfailed'].includes(l.type));
-await writeFile(path.join(OUT, 'console.json'), JSON.stringify({ shots, logs }, null, 2));
-console.log(`\nconsole: ${logs.length} messages, ${errors.length} errors`);
-for (const l of errors.slice(0, 15)) console.log(`  [${l.type}] ${l.text.slice(0, 300)}`);
+// The two story sections, scrolled to their tops. Measured from live rects:
+// `offsetTop` is relative to whichever positioned ancestor is nearest, and
+// `#machine` sits inside a `position: relative` wrapper.
+for (const [id, name, extra] of [
+  ['machine', '11-the-machine', 0],
+  ['machine', '11b-the-machine-specs', 1.1],
+  ['story', '12-the-story', 0],
+  ['story', '12b-the-story-moments', 1.1],
+]) {
+  const top = await page.evaluate(
+    ([i, extraVh]) => {
+      const el = document.getElementById(i);
+      const doc = el.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({ top: doc + window.innerHeight * extraVh, behavior: 'instant' });
+      return doc;
+    },
+    [id, extra],
+  );
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(OUT, `${name}.png`) });
+  console.log(`  ${`${name}.png`.padEnd(26)} y=${Math.round(top)} #${id}`);
+}
+
+writeFileSync(path.join(OUT, 'beats.json'), JSON.stringify(manifest, null, 2));
+console.log(`\n  ${manifest.length + 4} frames in ${path.relative(ROOT, OUT)}/`);
+
+// A contact sheet, so the whole film can be read at a glance.
+const { execFileSync } = await import('node:child_process');
+try {
+  // Concatenate, then tile: xstack arithmetic across ten inputs is where this
+  // kind of script usually breaks.
+  execFileSync(
+    'ffmpeg',
+    [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'image2', '-framerate', '1', '-pattern_type', 'glob',
+      '-i', path.join(OUT, '[01][0-9]-*.png'),
+      '-vf', 'scale=460:-1,tile=5x2:padding=8:color=0x111111',
+      '-frames:v', '1', '-q:v', '4', path.join(OUT, 'contact-sheet.jpg'),
+    ],
+    { stdio: 'inherit' },
+  );
+  console.log('  contact-sheet.jpg');
+} catch {
+  console.log('  (ffmpeg unavailable — no contact sheet)');
+}
+
 await browser.close();
-process.exit(errors.length ? 1 : 0);
+server.kill('SIGTERM');
+process.exit(0);

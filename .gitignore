@@ -4,3 +4,11 @@ shots
 .DS_Store
 *.local
 *.tsbuildinfo
+
+# Source footage and photography. The shipped, optimised versions in
+# public/media/ are what the site loads and they are committed; these are the
+# 4K originals, kept so `npm run media` can reproduce them, and far too heavy
+# to belong in git.
+assets/source/*.mp4
+assets/source/*.glb
+assets/plates/*.jpg
