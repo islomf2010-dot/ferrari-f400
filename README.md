@@ -5,6 +5,9 @@ in a dark Maranello studio. The visitor scrolls, the cover slides away, and the
 camera walks around the car — frame by frame, forwards, backwards, and stopped
 exactly where they left it.
 
+[![Live Demonstration](https://img.shields.io/badge/Live_Demo-Vercel_Production-E11D48?style=for-the-badge)](https://ferrari-f400.vercel.app)
+[![Source Code](https://img.shields.io/badge/Source-GitHub-161B26?style=for-the-badge)](https://github.com/islomf2010-dot/ferrari-f400)
+
 There is no 3D in the primary experience. The camera move is a pre-rendered film
 that the page seeks through.
 
